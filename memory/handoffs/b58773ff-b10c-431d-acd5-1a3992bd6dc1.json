@@ -1,0 +1,127 @@
+{
+  "acceptance": {
+    "checks": [
+      {
+        "check": "project.godot exists",
+        "detail": "found",
+        "passed": true,
+        "timestamp": "2026-02-19T03:10:01.784244+00:00"
+      },
+      {
+        "check": "Main.tscn exists",
+        "detail": "found",
+        "passed": true,
+        "timestamp": "2026-02-19T03:10:01.784863+00:00"
+      },
+      {
+        "check": "player.gd exists",
+        "detail": "found",
+        "passed": true,
+        "timestamp": "2026-02-19T03:10:01.785290+00:00"
+      },
+      {
+        "check": "godot validation has zero errors",
+        "detail": "godot_error_count=0",
+        "passed": true,
+        "timestamp": "2026-02-19T03:10:01.785929+00:00"
+      },
+      {
+        "check": "Main scene contains Label text Hello World",
+        "detail": "Hello World found",
+        "passed": true,
+        "timestamp": "2026-02-19T03:10:01.786555+00:00"
+      }
+    ],
+    "passed": true
+  },
+  "generated_at": "2026-02-19T03:13:13.805565+00:00",
+  "objective_spec": {
+    "created_at": "2026-02-19T03:05:03.495399+00:00",
+    "objective": "Build a Godot 2D Hello World scene with player script",
+    "objective_type": "godot-2d",
+    "spec": {
+      "acceptance": {
+        "checks": [
+          "project.godot exists",
+          "Main.tscn exists",
+          "player.gd exists",
+          "godot validation has zero errors",
+          "Main scene contains Label text Hello World"
+        ],
+        "description": "Deterministic objective acceptance criteria"
+      },
+      "artifacts": [
+        {
+          "kind": "project",
+          "owner_agent": "director",
+          "path": "projects/sandbox_project/project.godot"
+        },
+        {
+          "kind": "scene",
+          "owner_agent": "architect",
+          "path": "projects/sandbox_project/scenes/Main.tscn"
+        },
+        {
+          "kind": "script",
+          "owner_agent": "programmer",
+          "path": "projects/sandbox_project/scripts/player.gd"
+        }
+      ],
+      "objective": "Build a Godot 2D Hello World scene with player script",
+      "objective_type": "godot-2d",
+      "spec_version": 1
+    }
+  },
+  "release_readiness": {
+    "passed": false,
+    "snapshot": {
+      "blocking_gates": [
+        "docs_policy_passed"
+      ],
+      "handoff": {
+        "blocking_gates": [
+          "docs_policy_passed"
+        ],
+        "release_ready": false,
+        "run_id": "b58773ff-b10c-431d-acd5-1a3992bd6dc1",
+        "summary": "blocked"
+      },
+      "hard_gates": {
+        "acceptance_passed": true,
+        "artifacts_present": true,
+        "docs_policy_passed": false,
+        "invariants_passed": true
+      },
+      "metrics": {
+        "invariant_violations": 0
+      },
+      "policy": {
+        "docs_strict": true,
+        "docs_version": "4.2"
+      },
+      "release_ready": false,
+      "run_id": "b58773ff-b10c-431d-acd5-1a3992bd6dc1"
+    },
+    "timestamp": "2026-02-19T03:10:01.787450+00:00"
+  },
+  "release_ready": false,
+  "run_id": "b58773ff-b10c-431d-acd5-1a3992bd6dc1",
+  "schema_version": 1,
+  "summary": {
+    "acceptance_checks": 5,
+    "acceptance_failed": 0,
+    "attempts": 2,
+    "release_ready": false,
+    "successful_attempts": 2,
+    "task_status_counts": {
+      "assigned": 0,
+      "completed": 3,
+      "failed": 0,
+      "in_progress": 0,
+      "other": 0,
+      "queued": 0
+    },
+    "tasks": 3,
+    "violations": 0
+  }
+}

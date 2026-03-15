@@ -1,0 +1,20 @@
+63f7b34db8d8cdea90c76aacccf841ec
+::res://::1772426001
+::res://assets/::1772334594
+character_01.png::CompressedTexture2D::2124007064395590751::1767653230::1772318908::1::::<><><>0<>0<>40ad4bdaf62012cc9c8d1f93aa9cb393<>res://.godot/imported/character_01.png-bf60ba564ff9b2195444d359b65665ce.ctex::
+character_02.png::CompressedTexture2D::6068414634528172039::1767653358::1772318908::1::::<><><>0<>0<>e99a58a365b9b7d14150fc420a757d4f<>res://.godot/imported/character_02.png-a6702ae14317135f097ff72d910c0753.ctex::
+Houses Sprite Sheet.png::CompressedTexture2D::8343322860471468534::1772333975::1772334594::1::::<><><>0<>0<>0ecd751c71ba62406bd92d49c1281e59<>res://.godot/imported/Houses Sprite Sheet.png-a821c4fc5ba72547dcbe2a64b7269229.ctex::
+README.txt::TextFile::-1::1767656766::0::1::::<><><>0<>0<><>::
+slime_blue.png::CompressedTexture2D::7603391053639478125::1767653516::1772318908::1::::<><><>0<>0<>216f5dada527ca5ef3393b75657cbcbd<>res://.godot/imported/slime_blue.png-fd8d0994935b22d51d09bb261b5bc833.ctex::
+tileset.png::CompressedTexture2D::1910679488647670776::1767822918::1772318908::1::::<><><>0<>0<>109521fcfcc793d125758ece80b15e53<>res://.godot/imported/tileset.png-c50288acd069fa293d7940a084811264.ctex::
+::res://assets/2D Isometric Village Asset Pack/::1772334936
+Isometric Assets 2.png::CompressedTexture2D::235692404501673277::1704821370::1772334594::1::::<><><>0<>0<>11258bcfde2a811bb5effd7d8d5d4ec6<>res://.godot/imported/Isometric Assets 2.png-37d4efed7e7693f2018bea7158a5f00f.ctex::
+Isometric Assets 3.png::CompressedTexture2D::4898096574626046516::1704821334::1772334594::1::::<><><>0<>0<>4db6c585d5516b17fa74a8c74837c677<>res://.godot/imported/Isometric Assets 3.png-c14061843d41bb3a6b4ce6fc4be14fd0.ctex::
+Isometric Assets 4.png::CompressedTexture2D::6482480469272892352::1706047188::1772334592::1::::<><><>0<>0<>a6f93a6c3fa0dc99fee641949f83091d<>res://.godot/imported/Isometric Assets 4.png-c4d386243a3f35515dc1baecdb9c2029.ctex::
+::res://scenes/::1772321561
+Main.tscn::PackedScene::-1::1772491428::0::1::::<><><>0<>0<><>::
+::res://scripts/::1772418812
+player.gd::GDScript::1800917907452720137::1772491457::0::1::::<>CharacterBody2D<><>0<>0<><>::
+::res://templates/::1772424994
+library_index.json::JSON::-1::1772424994::0::1::::<><><>0<>0<><>::
+::res://template_bootstrap/::1772418522

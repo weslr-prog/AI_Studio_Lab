@@ -1,0 +1,47 @@
+{
+  "project_name": "sandbox_project",
+  "status": "ok",
+  "templates": [
+    {
+      "fetched_at": "2026-02-28T22:17:53.192379+00:00",
+      "local_path": "/Users/wesleyrufus/AI_STUDIO_LAB/projects/sandbox_project/templates/2d_platformer",
+      "ref": "master",
+      "repo": "godotengine/godot-demo-projects",
+      "source_query": "2d platformer",
+      "template_path": "2d/platformer"
+    },
+    {
+      "fetched_at": "2026-03-02T02:07:42.087581+00:00",
+      "local_path": "/Users/wesleyrufus/AI_STUDIO_LAB/projects/sandbox_project/templates/3d_procedural_materials",
+      "ref": "master",
+      "repo": "godotengine/godot-demo-projects",
+      "source_query": "procedural tilemap",
+      "template_path": "3d/procedural_materials"
+    },
+    {
+      "fetched_at": "2026-03-02T03:56:27.962484+00:00",
+      "local_path": "/Users/wesleyrufus/AI_STUDIO_LAB/projects/sandbox_project/templates/2d_dynamic_tilemap_layers",
+      "ref": "master",
+      "repo": "godotengine/godot-demo-projects",
+      "source_query": "procedural tilemap",
+      "template_path": "2d/dynamic_tilemap_layers"
+    },
+    {
+      "fetched_at": "2026-03-02T04:07:01.287409+00:00",
+      "local_path": "/Users/wesleyrufus/AI_STUDIO_LAB/projects/sandbox_project/templates/misc_noise_viewer",
+      "ref": "master",
+      "repo": "godotengine/godot-demo-projects",
+      "source_query": "terrain noise",
+      "template_path": "misc/noise_viewer"
+    },
+    {
+      "fetched_at": "2026-03-02T04:16:34.194211+00:00",
+      "local_path": "/Users/wesleyrufus/AI_STUDIO_LAB/projects/sandbox_project/templates/2d_role_playing_game",
+      "ref": "master",
+      "repo": "godotengine/godot-demo-projects",
+      "source_query": "world generation",
+      "template_path": "2d/role_playing_game"
+    }
+  ],
+  "updated_at": "2026-03-02T04:16:34.194386+00:00"
+}
