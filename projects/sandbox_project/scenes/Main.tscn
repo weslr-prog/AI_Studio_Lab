@@ -1,5 +1,28 @@
-[gd_scene format=3]
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/slime_blue.png" id="1_elqb8"]
 
 [node name="Main" type="Node2D"]
 
+[node name="Ground" type="TileMapLayer" parent="."]
+
 [node name="Player" type="CharacterBody2D" parent="."]
+position = Vector2(96, 96)
+
+[node name="Sprite" type="Sprite2D" parent="Player"]
+
+[node name="Enemy" type="CharacterBody2D" parent="."]
+position = Vector2(224, 96)
+
+[node name="Sprite" type="Sprite2D" parent="Enemy"]
+texture = ExtResource("1_elqb8")
+
+[node name="NPC" type="CharacterBody2D" parent="."]
+position = Vector2(160, 160)
+
+[node name="Sprite" type="Sprite2D" parent="NPC"]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="HealthLabel" type="Label" parent="UI"]
+text = "STAMINA: 100/100"

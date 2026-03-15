@@ -31,6 +31,50 @@ Effort scale:
 - Done when:
   - One run summary JSON/log bundle is generated consistently.
 
+### 0.3 Scene assembly contract freeze
+- Status: TODO
+- Effort: S
+- Depends on: 0.1, 0.2
+- Actions:
+  - Adopt `docs/SCENE_ASSEMBLY_PLAN_V1.md` as the implementation boundary for V1.
+  - Freeze scope to `topdown_adventure_v1` plus deterministic scene assembly.
+  - Explicitly defer workflow-shell redesign until the 10-run gate passes.
+- Done when:
+  - Team is building against one stable scene-assembly direction instead of parallel redesign paths.
+
+### 0.4 Scene-spec and asset-registry schema implementation
+- Status: TODO
+- Effort: M
+- Depends on: 0.3
+- Actions:
+  - Implement validators for the schemas defined in `docs/SCENE_SPEC_AND_ASSET_REGISTRY_V1.md`.
+  - Add runner-side payload generation for `Asset Registry` and `Scene Spec`.
+  - Add test fixtures for valid and invalid payloads.
+- Done when:
+  - Runner can emit validated scene-assembly payloads for `topdown_adventure_v1`.
+
+### 0.5 Godot headless assembler spike
+- Status: TODO
+- Effort: M
+- Depends on: 0.4
+- Actions:
+  - Implement a headless assembler following `docs/GODOT_HEADLESS_ASSEMBLER_V1.md`.
+  - Support required node baseline plus tilemap and sprite-ground fallback.
+  - Emit machine-readable result payload for run reporting.
+- Done when:
+  - Godot can build parse-valid `Main.tscn` from validated JSON inputs.
+
+### 0.6 Deployment profile benchmarking
+- Status: TODO
+- Effort: S
+- Depends on: 0.4
+- Actions:
+  - Add development and deployment routing profiles described in `docs/MODEL_DEPLOYMENT_PROFILES_V1.md`.
+  - Benchmark M4 and M1-equivalent runtime behavior using the same objectives.
+  - Record latency, retries, fallback use, and failure counts.
+- Done when:
+  - One default development profile and one deployment profile are selected from measured data.
+
 ## Phase 1 — Non-technical intake MVP
 
 ### 1.1 Stage A <-> B state model

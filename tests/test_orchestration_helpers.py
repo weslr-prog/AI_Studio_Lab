@@ -6,7 +6,9 @@ from types import SimpleNamespace
 
 from runner import (
     _apply_template_bootstrap,
+    _build_asset_registry_payload,
     _build_orchestrate_template_guidance,
+    _build_scene_spec_payload,
     _asset_brief_to_objectives,
     _build_asset_catalog,
     _build_release_readiness_snapshot,
@@ -279,6 +281,37 @@ class OrchestrationHelperTests(unittest.TestCase):
         self.assertIn("Ranger.glb", payload["asset_role_assignments"]["character_asset"])
         self.assertEqual(len(payload["objectives"]), 3)
         self.assertIn("collectible", payload["objectives"][1]["objective_sentence"])
+
+    def test_build_asset_registry_payload_minimal(self) -> None:
+        payload = _build_asset_registry_payload(
+            project_name="sandbox_project",
+            asset_paths=[
+                "projects/sandbox_project/assets/chars/player_ranger.png",
+                "projects/sandbox_project/assets/world/terrain_tileset.png",
+                "projects/sandbox_project/assets/world/tree_01.png",
+            ],
+        )
+        self.assertEqual(payload["registry_version"], 1)
+        self.assertEqual(payload["project_root"], "projects/sandbox_project")
+        self.assertGreaterEqual(len(payload["assets"]), 3)
+        self.assertIn("ground_tileset_primary", payload["role_bindings"])
+
+    def test_build_scene_spec_payload_uses_sprite_fallback_without_tileset(self) -> None:
+        asset_registry = _build_asset_registry_payload(
+            project_name="sandbox_project",
+            asset_paths=[
+                "projects/sandbox_project/assets/chars/player_ranger.png",
+            ],
+        )
+        scene_spec = _build_scene_spec_payload(
+            project_name="sandbox_project",
+            asset_registry_payload=asset_registry,
+        )
+        self.assertEqual(scene_spec["scene_spec_version"], 1)
+        self.assertEqual(scene_spec["terrain"]["representation"], "sprite_fallback")
+        node_ids = {node["node_id"] for node in scene_spec["nodes"]}
+        self.assertIn("Main", node_ids)
+        self.assertIn("Player", node_ids)
 
     def test_extract_error_warning_lines(self) -> None:
         errors, warnings = _extract_error_warning_lines(

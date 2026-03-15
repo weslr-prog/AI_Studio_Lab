@@ -25,6 +25,7 @@ from kernel.db import KernelDB, SQLiteConnectionManager
 from kernel.godot_validator import GodotValidator
 from kernel.ledger import DecisionLedger
 from kernel.model_gateway import ModelGateway
+from kernel.scene_payloads import validate_asset_registry_payload, validate_scene_spec_payload
 from kernel.spec_compiler import compile_objective_spec
 from kernel.structure import ProjectStructureAnalyzer
 
@@ -1451,6 +1452,492 @@ def _asset_brief_to_objectives(brief: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _read_png_dimensions(path: Path) -> tuple[int | None, int | None]:
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(24)
+        if len(header) < 24:
+            return None, None
+        if header[:8] != b"\x89PNG\r\n\x1a\n":
+            return None, None
+        width, height = struct.unpack(">II", header[16:24])
+        return int(width), int(height)
+    except Exception:
+        return None, None
+
+
+def _role_candidates_for_asset(path: str) -> tuple[list[str], str]:
+    lowered = str(path).lower()
+    suffix = Path(path).suffix.lower()
+
+    if suffix in {".wav", ".ogg", ".mp3"}:
+        return ["audio_track_primary"], "audio"
+
+    if any(token in lowered for token in ("font", ".ttf", ".otf")):
+        return ["hud_font_primary"], "font"
+
+    if any(token in lowered for token in ("ranger", "hero", "player", "adventurer", "protagonist")):
+        return ["player_sprite_primary"], "texture"
+
+    if any(token in lowered for token in ("enemy", "monster", "slime", "skeleton", "boss")):
+        return ["enemy_sprite_primary"], "texture"
+
+    if any(token in lowered for token in ("npc", "villager", "merchant", "civilian")):
+        return ["npc_sprite_primary"], "texture"
+
+    if any(token in lowered for token in ("tile", "tileset", "terrain", "ground", "path", "road", "dirt")):
+        return ["ground_tileset_primary", "ground_sprite_fallback"], "texture"
+
+    if any(token in lowered for token in ("tree", "bush", "shrub", "plant", "flower", "grass")):
+        return ["prop_tree_variants", "ground_sprite_fallback"], "texture"
+
+    if any(token in lowered for token in ("rock", "stone", "boulder")):
+        return ["prop_rock_variants", "ground_sprite_fallback"], "texture"
+
+    if suffix in {".glb", ".gltf"}:
+        return ["prop_tree_variants", "prop_rock_variants"], "scene"
+
+    if suffix == ".png":
+        return ["ground_sprite_fallback"], "texture"
+
+    return ["unassigned"], "unknown"
+
+
+def _infer_texture_metadata(project_root: Path, relative_path: str) -> dict[str, Any]:
+    absolute_path = project_root / relative_path
+    suffix = absolute_path.suffix.lower()
+    metadata: dict[str, Any] = {
+        "extension": suffix,
+        "exists": absolute_path.exists(),
+    }
+    if suffix != ".png":
+        return metadata
+
+    width, height = _read_png_dimensions(absolute_path)
+    metadata["width"] = width
+    metadata["height"] = height
+    lowered = absolute_path.name.lower()
+
+    sprite_sheet = any(marker in lowered for marker in ("sheet", "spritesheet", "atlas", "tileset"))
+    metadata["sprite_sheet"] = sprite_sheet
+
+    if width and height and "tile" in lowered:
+        for candidate in (64, 48, 32, 24, 16, 8):
+            if width % candidate == 0 and height % candidate == 0:
+                metadata["tile_size"] = [candidate, candidate]
+                metadata["hframes"] = width // candidate
+                metadata["vframes"] = height // candidate
+                break
+
+    if sprite_sheet and width and height and "hframes" not in metadata:
+        for candidate in (8, 6, 5, 4, 3, 2):
+            if width % candidate == 0:
+                frame_width = width // candidate
+                if frame_width > 0 and height % frame_width == 0:
+                    metadata["hframes"] = candidate
+                    metadata["vframes"] = max(1, height // frame_width)
+                    break
+
+    return metadata
+
+
+def _build_asset_registry_payload(
+    project_name: str,
+    archetype_id: str = "topdown_adventure_v1",
+    asset_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    config = load_kernel_config()
+    project_root = config.project_root
+    discovered_assets = asset_paths if asset_paths is not None else _discover_project_assets(project_name)
+    normalized_assets = [str(path).strip() for path in discovered_assets if str(path).strip()]
+
+    assets: list[dict[str, Any]] = []
+    for index, relative_path in enumerate(normalized_assets, start=1):
+        role_candidates, kind = _role_candidates_for_asset(relative_path)
+        confidence = 0.9 if role_candidates[0] != "unassigned" else 0.4
+        assets.append(
+            {
+                "asset_id": f"asset_{index:03d}_{Path(relative_path).stem.lower().replace('-', '_').replace(' ', '_')}",
+                "path": relative_path,
+                "kind": kind,
+                "role_candidates": role_candidates,
+                "tags": [Path(relative_path).suffix.lower().lstrip(".")],
+                "metadata": _infer_texture_metadata(project_root=project_root, relative_path=relative_path),
+                "confidence": confidence,
+            }
+        )
+
+    def _best_asset_id(role: str) -> str:
+        candidates = [item for item in assets if role in item["role_candidates"]]
+        if not candidates:
+            return ""
+        candidates.sort(key=lambda item: float(item.get("confidence", 0.0)), reverse=True)
+        return str(candidates[0]["asset_id"])
+
+    def _asset_ids(role: str, max_items: int) -> list[str]:
+        candidates = [item for item in assets if role in item["role_candidates"]]
+        candidates.sort(key=lambda item: float(item.get("confidence", 0.0)), reverse=True)
+        return [str(item["asset_id"]) for item in candidates[: max(1, int(max_items))]]
+
+    role_bindings: dict[str, Any] = {
+        "player_sprite_primary": _best_asset_id("player_sprite_primary"),
+        "enemy_sprite_primary": _best_asset_id("enemy_sprite_primary"),
+        "npc_sprite_primary": _best_asset_id("npc_sprite_primary"),
+        "ground_tileset_primary": _best_asset_id("ground_tileset_primary"),
+        "ground_sprite_fallback": _best_asset_id("ground_sprite_fallback"),
+        "hud_font_primary": _best_asset_id("hud_font_primary"),
+        "prop_rock_variants": _asset_ids("prop_rock_variants", 3),
+        "prop_tree_variants": _asset_ids("prop_tree_variants", 3),
+    }
+
+    role_bindings = {
+        key: value
+        for key, value in role_bindings.items()
+        if (isinstance(value, str) and value) or (isinstance(value, list) and value)
+    }
+
+    catalog = _build_asset_catalog(normalized_assets)
+    payload = {
+        "registry_version": 1,
+        "project_root": "projects/sandbox_project",
+        "archetype_id": str(archetype_id).strip() or "topdown_adventure_v1",
+        "assets": assets,
+        "role_bindings": role_bindings,
+        "discovery_summary": {
+            "project_name": project_name,
+            "total_assets": len(assets),
+            "role_counts": catalog.get("role_counts", {}),
+        },
+        "warnings": [],
+    }
+
+    critical_roles = ["player_sprite_primary", "ground_tileset_primary", "ground_sprite_fallback"]
+    for role in critical_roles:
+        if role not in role_bindings:
+            payload["warnings"].append(f"missing_role_binding:{role}")
+
+    validate_asset_registry_payload(payload)
+    return payload
+
+
+def _build_scene_spec_payload(
+    project_name: str,
+    asset_registry_payload: dict[str, Any],
+    archetype_id: str = "topdown_adventure_v1",
+) -> dict[str, Any]:
+    role_bindings = asset_registry_payload.get("role_bindings", {})
+    has_tileset = bool(role_bindings.get("ground_tileset_primary"))
+    terrain_representation = "tilemap" if has_tileset else "sprite_fallback"
+
+    payload = {
+        "scene_spec_version": 1,
+        "archetype_id": str(archetype_id).strip() or "topdown_adventure_v1",
+        "scene_path": f"projects/{project_name}/scenes/Main.tscn",
+        "assembly_mode": "create_or_replace",
+        "terrain": {
+            "representation": terrain_representation,
+            "grammar": "border walls + central path + one water band + bridge",
+            "grid_size": [20, 12],
+            "tile_size": [16, 16],
+            "terrain_types": [
+                [1, 1, 1, 1, 1, 1],
+                [1, 0, 0, 0, 0, 1],
+                [1, 0, 2, 2, 0, 1],
+                [1, 0, 0, 0, 0, 1],
+                [1, 1, 1, 1, 1, 1],
+            ],
+            "tileset_role": "ground_tileset_primary",
+            "fallback_role": "ground_sprite_fallback",
+        },
+        "nodes": [
+            {
+                "node_id": "Main",
+                "node_type": "Node2D",
+                "parent": "",
+                "role": "root",
+                "required": True,
+            },
+            {
+                "node_id": "Ground",
+                "node_type": "TileMapLayer" if terrain_representation == "tilemap" else "Sprite2D",
+                "parent": "Main",
+                "role": "ground",
+                "asset_role": "ground_tileset_primary" if terrain_representation == "tilemap" else "ground_sprite_fallback",
+                "required": True,
+            },
+            {
+                "node_id": "Player",
+                "node_type": "CharacterBody2D",
+                "parent": "Main",
+                "role": "player_actor",
+                "asset_role": "player_sprite_primary",
+                "script_path": f"projects/{project_name}/scripts/player.gd",
+                "required": True,
+            },
+            {
+                "node_id": "Enemy",
+                "node_type": "CharacterBody2D",
+                "parent": "Main",
+                "role": "enemy_actor",
+                "asset_role": "enemy_sprite_primary",
+                "required": True,
+            },
+            {
+                "node_id": "NPC",
+                "node_type": "CharacterBody2D",
+                "parent": "Main",
+                "role": "npc_actor",
+                "asset_role": "npc_sprite_primary",
+                "required": True,
+            },
+            {
+                "node_id": "UI",
+                "node_type": "CanvasLayer",
+                "parent": "Main",
+                "role": "ui_root",
+                "required": True,
+            },
+            {
+                "node_id": "HealthLabel",
+                "node_type": "Label",
+                "parent": "UI",
+                "role": "hud_label",
+                "required": True,
+            },
+        ],
+        "spawns": {
+            "player": [96, 96],
+            "enemy": [224, 96],
+            "npc": [160, 160],
+        },
+        "props": [
+            {
+                "prop_role": "prop_tree_variants",
+                "placement_mode": "scatter",
+                "zone": "outer_grass",
+                "count": 6,
+                "avoid": ["player_spawn", "enemy_spawn"],
+            },
+            {
+                "prop_role": "prop_rock_variants",
+                "placement_mode": "scatter",
+                "zone": "path_edges",
+                "count": 4,
+                "avoid": ["player_spawn", "enemy_spawn"],
+            },
+        ],
+        "ui": {
+            "show_stamina_label": True,
+            "text_format": "STAMINA: {current}/{max}",
+            "font_role": "hud_font_primary",
+        },
+        "fallbacks": [
+            {
+                "when": "ground_tileset_primary_unavailable",
+                "action": "use_sprite_fallback_ground",
+            },
+            {
+                "when": "npc_sprite_primary_low_confidence",
+                "action": "spawn_static_placeholder_color",
+            },
+        ],
+        "acceptance_hints": [
+            "required artifacts exist",
+            "Main.tscn parse-valid",
+            "ground representation present",
+            "player spawn valid",
+        ],
+    }
+
+    validate_scene_spec_payload(payload)
+    return payload
+
+
+def _handle_scene_spec(project_name: str, archetype_id: str, output_dir: str | None, no_write: bool) -> None:
+    registry_payload = _build_asset_registry_payload(project_name=project_name, archetype_id=archetype_id)
+    scene_spec_payload = _build_scene_spec_payload(
+        project_name=project_name,
+        asset_registry_payload=registry_payload,
+        archetype_id=archetype_id,
+    )
+
+    result: dict[str, Any] = {
+        "status": "ok",
+        "project_name": project_name,
+        "archetype_id": archetype_id,
+        "asset_registry": registry_payload,
+        "scene_spec": scene_spec_payload,
+    }
+
+    if not no_write:
+        config = load_kernel_config()
+        default_output_dir = config.project_root / "projects" / project_name / ".studio"
+        resolved_output_dir = Path(output_dir) if output_dir else default_output_dir
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+
+        asset_registry_path = resolved_output_dir / "asset_registry.json"
+        scene_spec_path = resolved_output_dir / "scene_spec.json"
+        asset_registry_path.write_text(
+            json.dumps(registry_payload, ensure_ascii=True, sort_keys=True, indent=2),
+            encoding="utf-8",
+        )
+        scene_spec_path.write_text(
+            json.dumps(scene_spec_payload, ensure_ascii=True, sort_keys=True, indent=2),
+            encoding="utf-8",
+        )
+
+        result["written_files"] = {
+            "asset_registry": str(asset_registry_path),
+            "scene_spec": str(scene_spec_path),
+        }
+
+    print(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2))
+
+
+def _extract_json_objects_from_text(raw_text: str) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for line in str(raw_text).splitlines():
+        candidate = line.strip()
+        if not candidate.startswith("{") or not candidate.endswith("}"):
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            payloads.append(parsed)
+    return payloads
+
+
+def _run_scene_assembler(
+    project_name: str,
+    scene_spec_relative_path: str = ".studio/scene_spec.json",
+    asset_registry_relative_path: str = ".studio/asset_registry.json",
+) -> dict[str, Any]:
+    config = load_kernel_config()
+    project_path = config.project_root / "projects" / project_name
+    command = [
+        "godot",
+        "--headless",
+        "--path",
+        str(project_path),
+        "--script",
+        "tools/scene_assembler.gd",
+        "--scene-spec",
+        scene_spec_relative_path,
+        "--asset-registry",
+        asset_registry_relative_path,
+    ]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    parsed_payloads = _extract_json_objects_from_text(completed.stdout)
+    scene_payload = parsed_payloads[-1] if parsed_payloads else {}
+
+    result = {
+        "status": "ok" if completed.returncode == 0 else "error",
+        "returncode": int(completed.returncode),
+        "scene_payload": scene_payload,
+        "stdout_tail": completed.stdout.splitlines()[-80:],
+        "stderr_tail": completed.stderr.splitlines()[-80:],
+        "command": command,
+    }
+    if completed.returncode != 0:
+        result["message"] = "Godot scene assembler failed"
+    return result
+
+
+def _assemble_scene_from_payloads(project_name: str, archetype_id: str) -> dict[str, Any]:
+    config = load_kernel_config()
+    studio_dir = config.project_root / "projects" / project_name / ".studio"
+    studio_dir.mkdir(parents=True, exist_ok=True)
+
+    asset_registry_payload = _build_asset_registry_payload(project_name=project_name, archetype_id=archetype_id)
+    scene_spec_payload = _build_scene_spec_payload(
+        project_name=project_name,
+        asset_registry_payload=asset_registry_payload,
+        archetype_id=archetype_id,
+    )
+
+    asset_registry_path = studio_dir / "asset_registry.json"
+    scene_spec_path = studio_dir / "scene_spec.json"
+    asset_registry_path.write_text(
+        json.dumps(asset_registry_payload, ensure_ascii=True, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    scene_spec_path.write_text(
+        json.dumps(scene_spec_payload, ensure_ascii=True, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+
+    assembler_result = _run_scene_assembler(
+        project_name=project_name,
+        scene_spec_relative_path=".studio/scene_spec.json",
+        asset_registry_relative_path=".studio/asset_registry.json",
+    )
+    return {
+        "status": assembler_result.get("status", "error"),
+        "project_name": project_name,
+        "archetype_id": archetype_id,
+        "payload_paths": {
+            "asset_registry": str(asset_registry_path),
+            "scene_spec": str(scene_spec_path),
+        },
+        "asset_registry_summary": {
+            "total_assets": int(len(asset_registry_payload.get("assets", []))),
+            "warnings": list(asset_registry_payload.get("warnings", [])),
+            "role_bindings": sorted(list(asset_registry_payload.get("role_bindings", {}).keys())),
+        },
+        "assembler": assembler_result,
+    }
+
+
+def _load_scene_assembly_artifacts(project_name: str = "sandbox_project") -> dict[str, Any] | None:
+    config = load_kernel_config()
+    studio_dir = config.project_root / "projects" / project_name / ".studio"
+    assembly_path = studio_dir / "assembly_result.json"
+    scene_spec_path = studio_dir / "scene_spec.json"
+    asset_registry_path = studio_dir / "asset_registry.json"
+
+    if not assembly_path.exists() and not scene_spec_path.exists() and not asset_registry_path.exists():
+        return None
+
+    def _safe_load(path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    assembly_payload = _safe_load(assembly_path)
+    scene_spec_payload = _safe_load(scene_spec_path)
+    asset_registry_payload = _safe_load(asset_registry_path)
+
+    return {
+        "files": {
+            "assembly_result": str(assembly_path),
+            "scene_spec": str(scene_spec_path),
+            "asset_registry": str(asset_registry_path),
+        },
+        "assembly_result": assembly_payload,
+        "scene_spec": {
+            "archetype_id": (scene_spec_payload or {}).get("archetype_id"),
+            "terrain_representation": ((scene_spec_payload or {}).get("terrain") or {}).get("representation"),
+            "node_count": len((scene_spec_payload or {}).get("nodes", [])),
+        },
+        "asset_registry": {
+            "total_assets": len((asset_registry_payload or {}).get("assets", [])),
+            "warnings": (asset_registry_payload or {}).get("warnings", []),
+            "role_bindings": sorted(list(((asset_registry_payload or {}).get("role_bindings") or {}).keys())),
+        },
+    }
+
+
 def _handle_asset_brief() -> None:
     project_name = _read_optional_input("project_name [sandbox_project]: ", "sandbox_project")
     genre_template = _read_optional_input("genre_template [isometric 2.5D exploration]: ", "isometric 2.5D exploration")
@@ -2544,10 +3031,13 @@ def _build_run_report(run_id: str) -> dict[str, Any]:
         else:
             status_counts["other"] += 1
 
+    scene_assembly = _load_scene_assembly_artifacts(project_name="sandbox_project")
+
     return {
         "status": "ok",
         "run_id": run_id,
         "objective_spec": objective_spec_payload,
+        "scene_assembly": scene_assembly,
         "release_readiness": release_readiness,
         "acceptance": {
             "passed": all(item["passed"] for item in acceptance_results) if acceptance_results else None,
@@ -2868,6 +3358,10 @@ def _run_orchestrate(
     programmer = ProgrammerAgent()
     qa = QAgent()
     retry_trace: dict[str, list[dict[str, Any]]] = {}
+    scene_assembly_result: dict[str, Any] = {
+        "status": "skipped",
+        "reason": "not_executed",
+    }
     director_fallback_used = False
     director_fallback_reason: str | None = None
     architect_fallback_used = False
@@ -3112,6 +3606,42 @@ def _run_orchestrate(
         return
     db.update_task_status(task_id=int(programmer_contract["task_id"]), status="completed")
 
+    scene_assembly_result = _assemble_scene_from_payloads(
+        project_name="sandbox_project",
+        archetype_id="topdown_adventure_v1",
+    )
+    if str(scene_assembly_result.get("status", "")).strip().lower() != "ok":
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "message": "Scene assembly stage failed",
+                    "scene_assembly": scene_assembly_result,
+                    "created_tasks": created_tasks,
+                    "contracts": contracts,
+                    "run_id": run_id,
+                    "bootstrap_file": bootstrap_file,
+                    "decision_id": decision_id,
+                    "architecture_implementation": architecture_implementation,
+                    "implementation": implementation,
+                    "ledger_bootstrap": ledger_bootstrap,
+                    "template_guidance": template_guidance,
+                    "template_bootstrap": template_bootstrap,
+                    "recovery": _recovery_payload_with_fallback(
+                        director_fallback_used=director_fallback_used,
+                        director_fallback_reason=director_fallback_reason,
+                        architect_fallback_used=architect_fallback_used,
+                        architect_fallback_reason=architect_fallback_reason,
+                    ),
+                    "retry_trace": retry_trace,
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+                indent=2,
+            )
+        )
+        return
+
     qa_execution = _invoke_with_retry(
         "qa_analysis",
         lambda: qa.analyze_task(int(programmer_contract["task_id"]), run_id=run_id),
@@ -3251,7 +3781,18 @@ def _run_orchestrate(
         "smoke_test_passed": smoke_passed,
         "smoke_test_warnings_as_errors": bool(smoke_warnings_as_errors),
         "smoke_test_skipped": bool(skip_smoke_test),
+        "scene_assembly_passed": str(scene_assembly_result.get("status", "")).strip().lower() == "ok",
     }
+    if not bool(release_readiness_snapshot["quality_gates"]["scene_assembly_passed"]):
+        if "scene_assembly_passed" not in release_readiness_snapshot["blocking_gates"]:
+            release_readiness_snapshot["blocking_gates"].append("scene_assembly_passed")
+        release_readiness_snapshot["release_ready"] = False
+        release_readiness_snapshot["handoff"] = {
+            "run_id": run_id,
+            "release_ready": False,
+            "blocking_gates": release_readiness_snapshot["blocking_gates"],
+            "summary": "blocked",
+        }
     if not smoke_passed and "smoke_test_passed" not in release_readiness_snapshot["blocking_gates"]:
         release_readiness_snapshot["blocking_gates"].append("smoke_test_passed")
         release_readiness_snapshot["release_ready"] = False
@@ -3282,6 +3823,7 @@ def _run_orchestrate(
                     "decision_id": decision_id,
                     "architecture_implementation": architecture_implementation,
                     "implementation": implementation,
+                    "scene_assembly": scene_assembly_result,
                     "qa": qa_result,
                     "ledger_bootstrap": ledger_bootstrap,
                     "template_guidance": template_guidance,
@@ -3315,6 +3857,7 @@ def _run_orchestrate(
                 "decision_id": decision_id,
                 "architecture_implementation": architecture_implementation,
                 "implementation": implementation,
+                "scene_assembly": scene_assembly_result,
                 "qa": qa_result,
                 "acceptance": acceptance_result,
                 "smoke_test": smoke_test_result,
@@ -3399,6 +3942,11 @@ def main() -> None:
     run_report_parser.add_argument("--run-id", dest="run_id", required=False)
     subparsers.add_parser("creative-brief", help="Generate stronger objective candidates from a structured creative brief")
     subparsers.add_parser("asset-brief", help="Scan project assets, suggest role assignments, and generate objective candidates")
+    scene_spec_parser = subparsers.add_parser("scene-spec", help="Generate validated Asset Registry and Scene Spec payloads")
+    scene_spec_parser.add_argument("--project-name", dest="project_name", required=False, default="sandbox_project")
+    scene_spec_parser.add_argument("--archetype-id", dest="archetype_id", required=False, default="topdown_adventure_v1")
+    scene_spec_parser.add_argument("--output-dir", dest="output_dir", required=False)
+    scene_spec_parser.add_argument("--no-write", dest="no_write", action="store_true")
     template_search_parser = subparsers.add_parser("template-search", help="Targeted search for reusable Godot template/demo projects")
     template_search_parser.add_argument("--query", dest="query", required=True)
     template_search_parser.add_argument("--repo", dest="repo", required=False, default="godotengine/godot-demo-projects")
@@ -3495,6 +4043,13 @@ def main() -> None:
         _handle_creative_brief()
     elif args.command == "asset-brief":
         _handle_asset_brief()
+    elif args.command == "scene-spec":
+        _handle_scene_spec(
+            project_name=str(getattr(args, "project_name", "sandbox_project")),
+            archetype_id=str(getattr(args, "archetype_id", "topdown_adventure_v1")),
+            output_dir=getattr(args, "output_dir", None),
+            no_write=bool(getattr(args, "no_write", False)),
+        )
     elif args.command == "template-search":
         _handle_template_search(query=args.query, repo=args.repo, ref=args.ref, limit=args.limit)
     elif args.command == "template-fetch":
