@@ -1624,10 +1624,20 @@ def _build_scene_spec_payload(
     project_name: str,
     asset_registry_payload: dict[str, Any],
     archetype_id: str = "topdown_adventure_v1",
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     role_bindings = asset_registry_payload.get("role_bindings", {})
     has_tileset = bool(role_bindings.get("ground_tileset_primary"))
     terrain_representation = "tilemap" if has_tileset else "sprite_fallback"
+    merged_overrides = overrides or {}
+    override_terrain = str(merged_overrides.get("terrain_representation", "")).strip().lower()
+    if override_terrain in {"tilemap", "sprite_fallback"}:
+        terrain_representation = override_terrain
+
+    terrain_grammar = str(merged_overrides.get("terrain_grammar", "")).strip() or "border walls + central path + one water band + bridge"
+    prop_tree_count = int(merged_overrides.get("prop_tree_count", 6))
+    prop_rock_count = int(merged_overrides.get("prop_rock_count", 4))
+    spawn_layout = merged_overrides.get("spawns") if isinstance(merged_overrides.get("spawns"), dict) else {}
 
     payload = {
         "scene_spec_version": 1,
@@ -1636,7 +1646,7 @@ def _build_scene_spec_payload(
         "assembly_mode": "create_or_replace",
         "terrain": {
             "representation": terrain_representation,
-            "grammar": "border walls + central path + one water band + bridge",
+            "grammar": terrain_grammar,
             "grid_size": [20, 12],
             "tile_size": [16, 16],
             "terrain_types": [
@@ -1706,23 +1716,23 @@ def _build_scene_spec_payload(
             },
         ],
         "spawns": {
-            "player": [96, 96],
-            "enemy": [224, 96],
-            "npc": [160, 160],
+            "player": list(spawn_layout.get("player", [96, 96])),
+            "enemy": list(spawn_layout.get("enemy", [224, 96])),
+            "npc": list(spawn_layout.get("npc", [160, 160])),
         },
         "props": [
             {
                 "prop_role": "prop_tree_variants",
                 "placement_mode": "scatter",
                 "zone": "outer_grass",
-                "count": 6,
+                "count": max(0, prop_tree_count),
                 "avoid": ["player_spawn", "enemy_spawn"],
             },
             {
                 "prop_role": "prop_rock_variants",
                 "placement_mode": "scatter",
                 "zone": "path_edges",
-                "count": 4,
+                "count": max(0, prop_rock_count),
                 "avoid": ["player_spawn", "enemy_spawn"],
             },
         ],
@@ -1751,6 +1761,63 @@ def _build_scene_spec_payload(
 
     validate_scene_spec_payload(payload)
     return payload
+
+
+def _required_role_binding_violations(asset_registry_payload: dict[str, Any]) -> list[str]:
+    role_bindings = asset_registry_payload.get("role_bindings", {}) if isinstance(asset_registry_payload, dict) else {}
+    violations: list[str] = []
+    if not str(role_bindings.get("player_sprite_primary", "")).strip():
+        violations.append("player_sprite_primary")
+
+    has_ground_tileset = bool(str(role_bindings.get("ground_tileset_primary", "")).strip())
+    has_ground_fallback = bool(str(role_bindings.get("ground_sprite_fallback", "")).strip())
+    if not has_ground_tileset and not has_ground_fallback:
+        violations.append("ground_tileset_primary|ground_sprite_fallback")
+    return violations
+
+
+def _extract_terrain_grammar_from_objective(objective: str) -> str:
+    text = str(objective)
+    match = re.search(r"terrain\s+grammar\s*:\s*(.+)", text, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    value = match.group(1).strip()
+    if "\n" in value:
+        value = value.split("\n", 1)[0].strip()
+    return value
+
+
+def _infer_scene_spec_overrides_from_architect(architecture_payload: dict[str, Any], objective: str) -> dict[str, Any]:
+    module_plan = architecture_payload.get("module_plan", []) if isinstance(architecture_payload, dict) else []
+    rationale = str(architecture_payload.get("rationale", "")) if isinstance(architecture_payload, dict) else ""
+    ledger_entry = architecture_payload.get("ledger_entry", {}) if isinstance(architecture_payload, dict) else {}
+
+    combined = "\n".join([
+        rationale,
+        str(ledger_entry.get("chosen", "")),
+        str(ledger_entry.get("context", "")),
+        "\n".join(str(item) for item in module_plan if isinstance(item, str)),
+        str(objective),
+    ]).lower()
+
+    overrides: dict[str, Any] = {}
+    if any(token in combined for token in ("sprite fallback", "fallback ground", "sprite ground")):
+        overrides["terrain_representation"] = "sprite_fallback"
+    elif any(token in combined for token in ("tilemap", "terrain connect", "tileset")):
+        overrides["terrain_representation"] = "tilemap"
+
+    grammar = _extract_terrain_grammar_from_objective(objective)
+    if grammar:
+        overrides["terrain_grammar"] = grammar
+
+    if any(token in combined for token in ("dense", "high density", "crowded")):
+        overrides["prop_tree_count"] = 10
+        overrides["prop_rock_count"] = 8
+    elif any(token in combined for token in ("sparse", "low density", "minimal props")):
+        overrides["prop_tree_count"] = 3
+        overrides["prop_rock_count"] = 2
+
+    return overrides
 
 
 def _handle_scene_spec(project_name: str, archetype_id: str, output_dir: str | None, no_write: bool) -> None:
@@ -1860,6 +1927,7 @@ def _assemble_scene_from_payloads(project_name: str, archetype_id: str) -> dict[
         project_name=project_name,
         asset_registry_payload=asset_registry_payload,
         archetype_id=archetype_id,
+        overrides=None,
     )
 
     asset_registry_path = studio_dir / "asset_registry.json"
@@ -1935,6 +2003,20 @@ def _load_scene_assembly_artifacts(project_name: str = "sandbox_project") -> dic
             "warnings": (asset_registry_payload or {}).get("warnings", []),
             "role_bindings": sorted(list(((asset_registry_payload or {}).get("role_bindings") or {}).keys())),
         },
+    }
+
+
+def _build_progress_smoke_snapshot(stage: str, project_name: str = "sandbox_project") -> dict[str, Any]:
+    smoke = _build_smoke_test_payload(project_name=project_name, warnings_as_errors=False)
+    return {
+        "stage": stage,
+        "passed": bool(smoke.get("passed", False)),
+        "summary": smoke.get("summary", {}),
+        "status": smoke.get("status", "error"),
+        "errors": [
+            *(smoke.get("import_report", {}).get("errors", []) if isinstance(smoke.get("import_report"), dict) else []),
+            *(smoke.get("boot_report", {}).get("errors", []) if isinstance(smoke.get("boot_report"), dict) else []),
+        ],
     }
 
 
@@ -3254,6 +3336,7 @@ def _run_orchestrate(
     skip_smoke_test: bool = False,
     template_advisor_precheck: bool = True,
     template_project_name: str = "sandbox_project",
+    progress_smoke: bool = False,
 ) -> None:
     objective = _read_required_input("objective: ")
     template_guidance = _build_orchestrate_template_guidance(
@@ -3358,6 +3441,7 @@ def _run_orchestrate(
     programmer = ProgrammerAgent()
     qa = QAgent()
     retry_trace: dict[str, list[dict[str, Any]]] = {}
+    progress_smoke_checks: list[dict[str, Any]] = []
     scene_assembly_result: dict[str, Any] = {
         "status": "skipped",
         "reason": "not_executed",
@@ -3606,10 +3690,87 @@ def _run_orchestrate(
         return
     db.update_task_status(task_id=int(programmer_contract["task_id"]), status="completed")
 
-    scene_assembly_result = _assemble_scene_from_payloads(
+    scene_spec_overrides = _infer_scene_spec_overrides_from_architect(architecture, objective)
+    config = load_kernel_config()
+    studio_dir = config.project_root / "projects" / "sandbox_project" / ".studio"
+    studio_dir.mkdir(parents=True, exist_ok=True)
+    asset_registry_payload = _build_asset_registry_payload(
         project_name="sandbox_project",
         archetype_id="topdown_adventure_v1",
     )
+    missing_required_roles = _required_role_binding_violations(asset_registry_payload)
+    if missing_required_roles:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "message": "Required asset role bindings missing before scene assembly",
+                    "missing_required_role_bindings": missing_required_roles,
+                    "asset_registry_summary": {
+                        "total_assets": len(asset_registry_payload.get("assets", [])),
+                        "warnings": asset_registry_payload.get("warnings", []),
+                        "role_bindings": sorted(list((asset_registry_payload.get("role_bindings") or {}).keys())),
+                    },
+                    "scene_spec_overrides": scene_spec_overrides,
+                    "created_tasks": created_tasks,
+                    "contracts": contracts,
+                    "run_id": run_id,
+                    "bootstrap_file": bootstrap_file,
+                    "decision_id": decision_id,
+                    "architecture_implementation": architecture_implementation,
+                    "implementation": implementation,
+                    "ledger_bootstrap": ledger_bootstrap,
+                    "template_guidance": template_guidance,
+                    "template_bootstrap": template_bootstrap,
+                    "recovery": _recovery_payload_with_fallback(
+                        director_fallback_used=director_fallback_used,
+                        director_fallback_reason=director_fallback_reason,
+                        architect_fallback_used=architect_fallback_used,
+                        architect_fallback_reason=architect_fallback_reason,
+                    ),
+                    "retry_trace": retry_trace,
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+                indent=2,
+            )
+        )
+        return
+
+    scene_spec_payload = _build_scene_spec_payload(
+        project_name="sandbox_project",
+        asset_registry_payload=asset_registry_payload,
+        archetype_id="topdown_adventure_v1",
+        overrides=scene_spec_overrides,
+    )
+    asset_registry_path = studio_dir / "asset_registry.json"
+    scene_spec_path = studio_dir / "scene_spec.json"
+    asset_registry_path.write_text(
+        json.dumps(asset_registry_payload, ensure_ascii=True, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    scene_spec_path.write_text(
+        json.dumps(scene_spec_payload, ensure_ascii=True, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+
+    scene_assembly_result = {
+        "status": "pending",
+        "project_name": "sandbox_project",
+        "archetype_id": "topdown_adventure_v1",
+        "scene_spec_overrides": scene_spec_overrides,
+        "payload_paths": {
+            "asset_registry": str(asset_registry_path),
+            "scene_spec": str(scene_spec_path),
+        },
+    }
+    assembler = _run_scene_assembler(
+        project_name="sandbox_project",
+        scene_spec_relative_path=".studio/scene_spec.json",
+        asset_registry_relative_path=".studio/asset_registry.json",
+    )
+    scene_assembly_result["assembler"] = assembler
+    scene_assembly_result["status"] = assembler.get("status", "error")
     if str(scene_assembly_result.get("status", "")).strip().lower() != "ok":
         print(
             json.dumps(
@@ -3642,6 +3803,26 @@ def _run_orchestrate(
         )
         return
 
+    if progress_smoke:
+        smoke_snapshot = _build_progress_smoke_snapshot(stage="post_scene_assembly", project_name="sandbox_project")
+        progress_smoke_checks.append(smoke_snapshot)
+        if not bool(smoke_snapshot.get("passed", False)):
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "message": "Progress smoke check failed after scene assembly",
+                        "progress_smoke": progress_smoke_checks,
+                        "scene_assembly": scene_assembly_result,
+                        "run_id": run_id,
+                    },
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    indent=2,
+                )
+            )
+            return
+
     qa_execution = _invoke_with_retry(
         "qa_analysis",
         lambda: qa.analyze_task(int(programmer_contract["task_id"]), run_id=run_id),
@@ -3652,6 +3833,26 @@ def _run_orchestrate(
     )
     retry_trace["qa_analysis"] = qa_execution["attempts"]
     qa_result = qa_execution["result"]
+
+    if progress_smoke:
+        smoke_snapshot = _build_progress_smoke_snapshot(stage="post_qa", project_name="sandbox_project")
+        progress_smoke_checks.append(smoke_snapshot)
+        if not bool(smoke_snapshot.get("passed", False)):
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "message": "Progress smoke check failed after QA",
+                        "progress_smoke": progress_smoke_checks,
+                        "scene_assembly": scene_assembly_result,
+                        "run_id": run_id,
+                    },
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    indent=2,
+                )
+            )
+            return
 
     config = load_kernel_config()
     missing_pipeline_artifacts = [
@@ -3824,6 +4025,7 @@ def _run_orchestrate(
                     "architecture_implementation": architecture_implementation,
                     "implementation": implementation,
                     "scene_assembly": scene_assembly_result,
+                    "progress_smoke": progress_smoke_checks,
                     "qa": qa_result,
                     "ledger_bootstrap": ledger_bootstrap,
                     "template_guidance": template_guidance,
@@ -3858,6 +4060,7 @@ def _run_orchestrate(
                 "architecture_implementation": architecture_implementation,
                 "implementation": implementation,
                 "scene_assembly": scene_assembly_result,
+                "progress_smoke": progress_smoke_checks,
                 "qa": qa_result,
                 "acceptance": acceptance_result,
                 "smoke_test": smoke_test_result,
@@ -3937,6 +4140,12 @@ def main() -> None:
         required=False,
         default="sandbox_project",
         help="Project template library used by template advisor precheck",
+    )
+    orchestrate_parser.add_argument(
+        "--progress-smoke",
+        dest="progress_smoke",
+        action="store_true",
+        help="Run lightweight smoke checks during build stages (post scene assembly and post QA)",
     )
     run_report_parser = subparsers.add_parser("run-report", help="Show run correlation report")
     run_report_parser.add_argument("--run-id", dest="run_id", required=False)
@@ -4036,6 +4245,7 @@ def main() -> None:
             skip_smoke_test=bool(getattr(args, "skip_smoke_test", False)),
             template_advisor_precheck=not bool(getattr(args, "no_template_advisor_precheck", False)),
             template_project_name=str(getattr(args, "template_project_name", "sandbox_project")),
+            progress_smoke=bool(getattr(args, "progress_smoke", False)),
         )
     elif args.command == "run-report":
         _handle_run_report(args.run_id)

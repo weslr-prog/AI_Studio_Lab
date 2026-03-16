@@ -9,6 +9,9 @@ from runner import (
     _build_asset_registry_payload,
     _build_orchestrate_template_guidance,
     _build_scene_spec_payload,
+    _extract_terrain_grammar_from_objective,
+    _infer_scene_spec_overrides_from_architect,
+    _required_role_binding_violations,
     _asset_brief_to_objectives,
     _build_asset_catalog,
     _build_release_readiness_snapshot,
@@ -312,6 +315,34 @@ class OrchestrationHelperTests(unittest.TestCase):
         node_ids = {node["node_id"] for node in scene_spec["nodes"]}
         self.assertIn("Main", node_ids)
         self.assertIn("Player", node_ids)
+
+    def test_extract_terrain_grammar_from_objective(self) -> None:
+        grammar = _extract_terrain_grammar_from_objective(
+            "Build a top-down game. terrain grammar: border walls + central path + river"
+        )
+        self.assertEqual(grammar, "border walls + central path + river")
+
+    def test_infer_scene_spec_overrides_from_architect(self) -> None:
+        overrides = _infer_scene_spec_overrides_from_architect(
+            architecture_payload={
+                "rationale": "Use tilemap for deterministic terrain and high density foliage.",
+                "module_plan": ["tilemap terrain", "dense decoration"],
+                "ledger_entry": {"chosen": "tilemap with dense props"},
+            },
+            objective="Build V1 terrain slice",
+        )
+        self.assertEqual(overrides.get("terrain_representation"), "tilemap")
+        self.assertEqual(overrides.get("prop_tree_count"), 10)
+
+    def test_required_role_binding_violations(self) -> None:
+        violations = _required_role_binding_violations(
+            {
+                "role_bindings": {
+                    "ground_sprite_fallback": "asset_001_ground",
+                }
+            }
+        )
+        self.assertIn("player_sprite_primary", violations)
 
     def test_extract_error_warning_lines(self) -> None:
         errors, warnings = _extract_error_warning_lines(
