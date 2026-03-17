@@ -3,6 +3,104 @@
 Date: 2026-02-19
 Purpose: Convert strategy into an execution-ready delivery plan with dependencies and realistic effort sizing.
 
+## Canonical planning precedence
+
+Use documents in this order when deciding what to build next:
+
+1. `docs/SCENE_ASSEMBLY_PLAN_V1.md`
+  - Approved implementation boundary for current V1 work.
+2. `docs/GAP_CLOSURE_CHECKLIST_V1.md`
+  - Active execution gate for the current feature slice.
+3. `docs/STUDIO_IMPLEMENTATION_CHECKLIST.md`
+  - Umbrella roadmap and dependency tracker.
+4. `docs/STUDIO_VISION_ALIGNMENT_PLAN.md`
+  - Direction document for future UX/product evolution.
+5. `docs/DEVELOPMENT_PROCESS.md`
+  - Runtime/orchestration maturity record, not the active product-feature queue.
+
+Rule:
+- If two documents appear to conflict, follow the highest-precedence document in this list.
+
+## Active execution now
+
+Current active lane is stable scene assembly for one supported archetype:
+- Scope: `topdown_adventure_v1`
+- Boundary: `Asset Registry` -> `Scene Spec` -> Godot headless assembler -> smoke test -> repeatability gate
+- Current stop condition: do not advance to intake UX, template launcher, or broader product shell work until the scene-assembly 10-run gate passes.
+
+This means:
+- `docs/DEVELOPMENT_PROCESS.md` phases being complete does not mean product-direction phases are complete.
+- `Phase 1` and beyond in this document are intentionally deferred until the scene-assembly lane is stable.
+- `docs/AI_Studio_Build_Single_Machine.md` is supplemental workflow guidance, not a replacement architecture plan.
+
+## Immediate execution sequence for the current lane
+
+1. Complete baseline snapshot and observability setup (`0.1`, `0.2`).
+2. Freeze scene-assembly scope and reject parallel redesign paths (`0.3`).
+3. Implement and validate `Asset Registry` and `Scene Spec` schemas (`0.4`).
+4. Implement Godot headless assembly for deterministic `Main.tscn` output (`0.5`).
+5. Benchmark development vs deployment model profiles on constrained hardware (`0.6`).
+6. Run the gap-closure tilemap terrain gate until it passes repeatedly before expanding scope.
+
+## Single-machine checklist mapping
+
+Apply the single-machine build document in these ways during the active lane:
+
+- Adopt now: smoke tests, prompt log discipline, strict scope control, session separation for heavy local tasks.
+- Adapt for Studio: semantic intent, asset registry, scene spec, deterministic translator.
+- Defer for now: runtime AI, broad UX shell work, multi-agent redesign, 3D expansion.
+
+## Do Next Now (execution queue)
+
+Use this queue as the active working set. Do not pull new roadmap items until all checkboxes here are complete.
+
+### Queue 1 — Baseline and observability
+
+- [ ] Run baseline validation and record current status.
+  - Command: `python runner.py validate`
+  - Evidence file: `logs/baseline_validate.log`
+- [ ] Run one orchestrated pass and generate report artifacts.
+  - Commands: `python runner.py orchestrate` then `python runner.py run-report`
+  - Evidence files: latest run manifest and report under `logs/`
+
+### Queue 2 — Scene payload generation
+
+- [ ] Generate `Asset Registry` and `Scene Spec` payloads.
+  - Command: `python runner.py scene-spec --project-name sandbox_project`
+  - Required files:
+    - `projects/sandbox_project/.studio/asset_registry.json`
+    - `projects/sandbox_project/.studio/scene_spec.json`
+- [ ] Validate payload structure against V1 schema expectations.
+  - Source of truth: `docs/SCENE_SPEC_AND_ASSET_REGISTRY_V1.md`
+  - Evidence: payloads are parse-valid JSON and include required top-level sections.
+
+### Queue 3 — Headless scene assembly
+
+- [ ] Assemble `Main.tscn` from generated payloads using Godot headless.
+  - Command:
+    `godot --headless --path projects/sandbox_project --script tools/scene_assembler.gd --scene-spec .studio/scene_spec.json --asset-registry .studio/asset_registry.json`
+  - Required output files:
+    - `projects/sandbox_project/scenes/Main.tscn`
+    - `projects/sandbox_project/.studio/assembly_result.json`
+- [ ] Confirm required baseline artifacts still exist post-assembly.
+  - Required files:
+    - `projects/sandbox_project/project.godot`
+    - `projects/sandbox_project/scenes/Main.tscn`
+    - `projects/sandbox_project/scripts/player.gd`
+
+### Queue 4 — Smoke and repeatability gate
+
+- [ ] Run smoke tests for the baseline scene/script path.
+  - Command: `pytest -k "smoke or tilemap"`
+  - Evidence file: `logs/smoke_tilemap.log`
+- [ ] Run the tilemap terrain repeatability cycle and record outcomes.
+  - Source of truth: `docs/TILEMAP_TERRAIN_ACCEPTANCE_MATRIX_V1.md`
+  - Gate: 10 consecutive passes before opening next feature slice.
+
+### Queue completion rule
+
+- [ ] Only after Queues 1-4 are complete, update status for `0.1` through `0.6` and consider activating `Phase 1 — Non-technical intake MVP`.
+
 Effort scale:
 - S = 0.5-2 days
 - M = 3-7 days
